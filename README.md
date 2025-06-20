@@ -25,7 +25,7 @@ To allow your n8n instance to communicate with Supabase, add a firewall rule in 
 
 4. Save the firewall rule.
 
-## Step 2: Get the Supabase Connection String
+## Step 2: Get the Supabase Connection String (Supabase Cloud Account)
 
 1. Log in to your **Supabase Dashboard**.
 2. Navigate to your project and click the **Connect** button in the header.
