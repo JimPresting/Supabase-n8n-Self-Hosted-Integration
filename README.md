@@ -136,8 +136,6 @@ KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
 sudo docker-compose restart kong
 ```
 
-
-
 ### Step 3: Configure n8n Supabase Credentials
 
 1. **Get your Service Role Key**:
@@ -153,7 +151,6 @@ sudo docker-compose restart kong
    - Navigate to **API Docs** → **Authentication** 
    - Copy the **SERVICE KEY** from the Service Keys section
 ![Screenshot 2025-06-24 112631](https://github.com/user-attachments/assets/799dc438-a0f8-42b5-84cc-24155c52d3fe)
-
 
 2. In n8n, create new Supabase credentials with:
    - **Host**: `your-subdomain.your-domain.com` (without https:// prefix or /rest/v1/ suffix)
@@ -185,6 +182,113 @@ By default, Supabase tables created through the Table Editor have RLS enabled. T
 
 To create policies for controlled access with the `anon` key, use the SQL Editor in Supabase Studio.
 
+---
+
+## Setting Up Vector Database for AI/LLM Applications
+
+For AI chatbots and LLM applications requiring semantic search capabilities, you can set up a vector database using pgvector extension.
+
+### Step 1: Enable pgvector Extension
+
+In your Supabase SQL Editor, run:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+### Step 2: Create Vector Table and Search Function
+
+Create a dedicated table for your knowledge base with vector embeddings:
+
+```sql
+-- Create knowledge base table with vector embeddings
+-- IMPORTANT: Check your embedding model documentation for correct dimensions:
+-- - OpenAI text-embedding-ada-002: 1536 dimensions
+-- - OpenAI text-embedding-3-small: 1536 dimensions  
+-- - OpenAI text-embedding-3-large: 3072 dimensions
+-- - Google text-embedding-004: 768 dimensions
+-- - Cohere embed-english-v3.0: 1024 dimensions
+-- - Anthropic/Voyage AI: varies (check docs)
+
+CREATE TABLE stardawnpublicdata ( -- change name and everywhere this appears. 
+  id bigserial primary key,
+  content text,
+  metadata jsonb,
+  embedding vector(768)  -- Adjust dimension based on your embedding model
+);
+
+-- Create search function for semantic similarity
+CREATE FUNCTION query_vectors (
+  query_embedding vector(768),  -- Must match table dimension
+  filter jsonb DEFAULT '{}',
+  match_count int DEFAULT null
+) RETURNS TABLE (
+  id bigint,
+  content text,
+  metadata jsonb,
+  similarity float
+)
+LANGUAGE plpgsql
+AS $
+BEGIN
+  RETURN QUERY
+  SELECT
+    stardawnpublicdata.id,
+    stardawnpublicdata.content,
+    stardawnpublicdata.metadata,
+    1 - (stardawnpublicdata.embedding <=> query_embedding) as similarity
+  FROM stardawnpublicdata
+  WHERE stardawnpublicdata.metadata @> filter
+  ORDER BY stardawnpublicdata.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$;
+```
+
+### Step 3: Configure n8n Vector Store
+
+1. **Add Supabase Vector Store node** to your n8n workflow
+2. **Configure the node**:
+   - **Credential**: Select your Supabase credentials
+   - **Operation Mode**: "Retrieve Documents (As Tool for AI Agent)"
+   - **Table Name**: `stardawnpublicdata`
+   - **Function**: Select `query_vectors` from dropdown
+   - **Limit**: Set desired number of results (e.g., 4)
+   - **Include Metadata**: Enable if needed
+
+### Step 4: In Use
+
+
+
+
+
+### Multiple Vector Databases
+
+To support multiple use cases, create additional tables and functions:
+
+```sql
+-- Customer support knowledge base
+CREATE TABLE customer_support_vectors (
+  id bigserial primary key,
+  content text,
+  metadata jsonb,
+  embedding vector(768)
+);
+
+CREATE FUNCTION search_support_vectors (
+  query_embedding vector(768),
+  filter jsonb DEFAULT '{}',
+  match_count int DEFAULT null
+) RETURNS TABLE (
+  id bigint,
+  content text,
+  metadata jsonb,
+  similarity float
+) ...
+```
+
+Then configure separate Supabase Vector Store nodes for each use case.
+
 ## Security Tips (Optional)
 
 - **Restrict Firewall Rules**: Instead of allowing `0.0.0.0/0`, use Supabase's specific IP ranges for better security. Check Supabase's documentation for their IP addresses.
@@ -200,22 +304,29 @@ To create policies for controlled access with the `anon` key, use the SQL Editor
 - **SSL Issues**: If SSL is required but not enabled, you may see connection errors. Enable SSL in the n8n node settings.
 - **"Unauthorized" with Supabase Node**: Ensure the Kong `request-transformer` plugin is properly configured to remove Authorization headers.
 - **"No API key found"**: This is normal when testing API endpoints directly - the Supabase node will automatically include the required headers.
+- **Vector Function Not Found**: Ensure the function name in n8n matches exactly the SQL function name (case-sensitive).
+- **Embedding Dimension Mismatch**: Verify your vector dimensions match your embedding model (768 for Google embeddings-004).
 
+## 🔌 Connection Methods Summary
 
-🔌 Connection Methods Summary
-Your self-hosted Supabase supports two integration approaches:
-Method 1: Supabase API (Recommended)
+Your self-hosted Supabase supports multiple integration approaches:
 
-Requirements: Host (sb.example.com) + SERVICE_ROLE_KEY
-Security: Very secure - keys are private, not publicly accessible
-Access: Only you (keys generated from your JWT_SECRET)
-Features: Full Supabase functionality, Row Level Security, real-time subscriptions
+### Method 1: Supabase API (Recommended)
+- **Requirements**: Host (sb.example.com) + SERVICE_ROLE_KEY
+- **Security**: Very secure - keys are private, not publicly accessible
+- **Access**: Only you (keys generated from your JWT_SECRET)
+- **Features**: Full Supabase functionality, Row Level Security, real-time subscriptions, vector search
 
-Method 2: Direct PostgreSQL
+### Method 2: Direct PostgreSQL
+- **Requirements**: Host + Port 5432 + postgres user + POSTGRES_PASSWORD
+- **Security**: Less secure - bypasses all Supabase security features
+- **Access**: Anyone with IP + port + credentials
+- **Features**: Basic CRUD operations only
 
-Requirements: Host + Port 5432 + postgres user + POSTGRES_PASSWORD
-Security: Less secure - bypasses all Supabase security features
-Access: Anyone with IP + port + credentials
-Features: Basic CRUD operations only
+### Method 3: Vector Database Integration
+- **Requirements**: Supabase API + pgvector extension + custom functions
+- **Security**: Same as Supabase API method
+- **Access**: Controlled via RLS and API keys
+- **Features**: Semantic search, AI chatbots, LLM context retrieval
 
-Recommendation: Use Supabase API method and close port 5432 in firewall for maximum security.
+**Recommendation**: Use Supabase API method with vector database for AI applications and close port 5432 in firewall for maximum security.
