@@ -198,7 +198,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ### Step 2: Create Vector Table and Search Function
 
-Create a dedicated table for your knowledge base with vector embeddings:
+
 
 ```sql
 -- Create knowledge base table with vector embeddings
@@ -210,16 +210,15 @@ Create a dedicated table for your knowledge base with vector embeddings:
 -- - Cohere embed-english-v3.0: 1024 dimensions
 -- - Anthropic/Voyage AI: varies (check docs)
 
-CREATE TABLE stardawnpublicdata ( -- change name and everywhere this appears. 
+CREATE TABLE stardawnpublicdata ( -- change to whatever you like
   id bigserial primary key,
   content text,
   metadata jsonb,
-  embedding vector(768)  -- Adjust dimension based on your embedding model
+  embedding vector(768)
 );
 
--- Create search function for semantic similarity
 CREATE FUNCTION query_vectors (
-  query_embedding vector(768),  -- Must match table dimension
+  query_embedding vector(768),
   filter jsonb DEFAULT '{}',
   match_count int DEFAULT null
 ) RETURNS TABLE (
@@ -229,21 +228,66 @@ CREATE FUNCTION query_vectors (
   similarity float
 )
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   RETURN QUERY
   SELECT
-    stardawnpublicdata.id,
-    stardawnpublicdata.content,
-    stardawnpublicdata.metadata,
+    stardawnpublicdata.id,        -- MUST match your table name
+    stardawnpublicdata.content,   -- MUST match your table name  
+    stardawnpublicdata.metadata,  -- MUST match your table name
     1 - (stardawnpublicdata.embedding <=> query_embedding) as similarity
-  FROM stardawnpublicdata
+  FROM stardawnpublicdata         -- MUST match your table name
   WHERE stardawnpublicdata.metadata @> filter
   ORDER BY stardawnpublicdata.embedding <=> query_embedding
   LIMIT match_count;
 END;
-$;
+$$;
 ```
+
+### Why SELECT with Table Names?
+
+**The Problem**: PostgreSQL doesn't know which table to query from if you just write `SELECT id, content` without specifying the table name in the SELECT clause.
+
+**The Solution**: Always prefix column names with the table name: `stardawnpublicdata.id`
+
+---
+
+## ⚠️ Common Error: Supabase Template Copy-Paste Mistake
+
+If you copy the template from [Supabase docs](https://supabase.com/docs/guides/ai/langchain?database-method=sql):
+
+```sql
+-- Original template uses "documents" table
+BEGIN
+  RETURN QUERY
+  SELECT 
+    id, content, metadata,
+    1 - (documents.embedding <=> query_embedding) as similarity
+  FROM documents
+  WHERE metadata @> filter
+  ORDER BY documents.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+```
+
+**But change your table name to something else** (e.g., `stardawnpublicdata`), you get this error:
+```
+PGRST202 Could not find the function public.match_documents
+```
+
+**Why?** The SELECT statement still references `documents.embedding` but your table is named `stardawnpublicdata`.
+
+**Fix:** Update ALL table references in the SELECT statement:
+```sql
+SELECT 
+  stardawnpublicdata.id, 
+  stardawnpublicdata.content, 
+  stardawnpublicdata.metadata,
+  1 - (stardawnpublicdata.embedding <=> query_embedding) as similarity
+FROM stardawnpublicdata  -- Your actual table name
+```
+
+**Rule**: When changing table names from templates, update EVERY reference in the function body.
 
 ### Step 3: Configure n8n Vector Store
 
