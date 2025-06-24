@@ -136,13 +136,30 @@ KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
 sudo docker-compose restart kong
 ```
 
+
+
 ### Step 3: Configure n8n Supabase Credentials
 
-1. In n8n, create new Supabase credentials with:
-   - **Host**: `your-subdomain.your-domain.com` (without https:// prefix or /rest/v1/ suffix)
-   - **Service Role Secret**: Your `SERVICE_ROLE_KEY` from the `.env` file
+1. **Get your Service Role Key**:
+   
+   **Method 1 - From .env file**:
+   ```bash
+   cd ~/supabase/docker
+   cat .env | grep SERVICE_ROLE_KEY
+   ```
+   
+   **Method 2 - From Supabase Studio**:
+   - Go to `https://your-subdomain.your-domain.com`
+   - Navigate to **API Docs** → **Authentication** 
+   - Copy the **SERVICE KEY** from the Service Keys section
+![Screenshot 2025-06-24 112631](https://github.com/user-attachments/assets/799dc438-a0f8-42b5-84cc-24155c52d3fe)
 
-2. Test the connection - it should now show "Connection tested successfully".
+
+2. In n8n, create new Supabase credentials with:
+   - **Host**: `your-subdomain.your-domain.com` (without https:// prefix or /rest/v1/ suffix)
+   - **Service Role Secret**: The SERVICE_ROLE_KEY you copied above
+
+3. Test the connection - it should now show "Connection tested successfully".
 
 ### Why This Configuration is Necessary
 
@@ -183,3 +200,22 @@ To create policies for controlled access with the `anon` key, use the SQL Editor
 - **SSL Issues**: If SSL is required but not enabled, you may see connection errors. Enable SSL in the n8n node settings.
 - **"Unauthorized" with Supabase Node**: Ensure the Kong `request-transformer` plugin is properly configured to remove Authorization headers.
 - **"No API key found"**: This is normal when testing API endpoints directly - the Supabase node will automatically include the required headers.
+
+
+🔌 Connection Methods Summary
+Your self-hosted Supabase supports two integration approaches:
+Method 1: Supabase API (Recommended)
+
+Requirements: Host (sb.example.com) + SERVICE_ROLE_KEY
+Security: Very secure - keys are private, not publicly accessible
+Access: Only you (keys generated from your JWT_SECRET)
+Features: Full Supabase functionality, Row Level Security, real-time subscriptions
+
+Method 2: Direct PostgreSQL
+
+Requirements: Host + Port 5432 + postgres user + POSTGRES_PASSWORD
+Security: Less secure - bypasses all Supabase security features
+Access: Anyone with IP + port + credentials
+Features: Basic CRUD operations only
+
+Recommendation: Use Supabase API method and close port 5432 in firewall for maximum security.
